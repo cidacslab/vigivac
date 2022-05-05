@@ -13,16 +13,16 @@ library(tidylog)
 library(tidytable)
 library(tictoc)
 
-setwd("/dados/Analysis/Thiago/Scripts/CoronaVac-Waning/TND")
+setwd("tnd01")
 tic()
-lab.data <- read_rds("/dados/Analysis/Thiago/Exploratory/tnd0812.RDS")
-#number of individuals 24495884
+lab.data <- read_rds("labdata.rds")
+
 # Fill date of sample collected with notification date, if sample collected date is missing and the sample is positive  
 lab.data <- lab.data %>% mutate(dt_coleta=case_when(
   is.na(dt_coleta) & confirmado=="Confirmado"~dt_notificacao,
   TRUE~dt_coleta
 ))
-#mutate: changed 363,857 values (1%) of 'dt_coleta' (363857 fewer NA)
+
 # Filter inconsistencies and notifications before covid-19 pandemic 
 lab.data <- lab.data %>% filter(dt_coleta>"2020-02-20")
 #filter: removed 12,857 rows (<1%), 30,946,602 rows remaining
@@ -31,11 +31,10 @@ max.date <- as.Date("2021-12-08")
 #impute sample collected date in sympton onset, when asymptomatic
 lab.data <- lab.data %>% mutate(dt_inicio_sintomas=coalesce(dt_inicio_sintomas,dt_coleta))
 
-#mutate: changed 363,320 values (1%) of 'dt_coleta' (363320 fewer NA)
 
 # Remove individuals <18
 lab.data <- lab.data %>% filter(idade>17) 
-#filter: removed 3,046,118 rows (10%), 27,900,484 rows remaining
+
 
 # Get the first positive test date
 df_pos <-  lab.data %>%
@@ -49,19 +48,11 @@ df_pos <-  lab.data %>%
 
 # Join first positive test date
 lab.data <-  left_join(lab.data,df_pos,by="id_vigvac")
-# left_join: added one column (firstcasedate)
-# > rows only in x   12,740,035
-# > rows only in y  (         0)
-# > matched rows     15,160,449
-# >                 ============
-#   > rows total       27,900,484
 
 # Remove cases before vaccine are available
 lab.data <- lab.data %>% filter(dt_inicio_sintomas>"2021-01-17")
-#filter: removed 8,850,298 rows (32%), 19,050,186 rows remaining
 
 lab.data <- lab.data %>% filter(!duplicated(paste0(id_vigvac,dt_coleta,confirmado)))
-#filter: removed 571,682 rows (3%), 18,478,504 rows remaining
 
 # Check if there is a positive less than 7 days apart from a negative
 lab.data <- lab.data %>%
@@ -73,14 +64,9 @@ lab.data <- lab.data %>%
 
 #remove false negative ones (negative tests followed by positive) - 
 lab.data <- lab.data %>% filter(NegFollowedByPos==0)
-#filter: removed 95,320 rows (1%), 18,383,184 rows remaining
 
 #check numbers of cases/controls
 table(lab.data$confirmado, useNA = "always")
-
-
-# Confirmado   Negativo       <NA> 
-#   8396245    9986939          0 
 
 
 # Create variable of date difference across tests
@@ -98,8 +84,7 @@ lab.data <- lab.data %>%group_by(id_vigvac) %>%  filter(case_when(n()>1 & all(co
                                   TRUE~TRUE))%>%  filter(case_when(n()>1 & all(confirmado=="Confirmado")~DaysDiffTest>90 | is.na(DaysDiffTest),
                                                                  TRUE~TRUE))
 # group_by: one grouping variable (id_vigvac)
-# filter (grouped): removed 292,514 rows (2%), 18,090,670 rows remaining
-# filter (grouped): removed 333,180 rows (2%), 17,757,490 rows remaining
+
 
 lab.data <- lab.data %>% 
   arrange.(id_vigvac,dt_coleta) %>%
@@ -115,14 +100,10 @@ lab.data <- lab.data %>%group_by(id_vigvac) %>%arrange(id_vigvac,dt_coleta) %>%
 
 
 # group_by: one grouping variable (id_vigvac)
-# filter (grouped): removed 79,180 rows (<1%), 17,678,310 rows remaining
-
 
 # Check numbers after filters
 table(lab.data$confirmado, useNA = "always")
 # Confirmado   Negativo       <NA> 
-#   7984623    9693687          0 
-
 
 # Define Outcome: Create vars about hospitalization and outcome (death)
 lab.data <- lab.data %>% mutate.(diff_sample_hosp=dt_interna_dt-dt_coleta,
@@ -150,7 +131,6 @@ lab.data <- lab.data %>% drop_na(cod_ibge,sexo,idade,dt_coleta) %>%
                          Indigenous="5"
          ))
 
-#drop_na: removed 2,200 rows (<1%), 17,676,110 rows remaining
 # mutate: converted 'raca' from integer to factor (0 new NA)
 # new variable 'uf' (factor) with 28 unique values and 0% NA
 # new variable 'outcome' (character) with 2 unique values and 0% NA
@@ -165,7 +145,7 @@ lab.data <- lab.data %>% group_by(id_vigvac)%>% filter(case_when(n()>1 & outcome
                    n()>1& outcome=="Hosp_Death"  & lead(confirmado)=="Confirmado" & confirmado=="Negativo"~lead(DaysDiffTest)>28,
                    TRUE~TRUE)) 
 # group_by: one grouping variable (id_vigvac)
-# filter (grouped): removed 19,243 rows (<1%), 17,656,867 rows remaining
+
 saveRDS(lab.data,"lab.data0812.rds")
 toc()
 
@@ -222,10 +202,6 @@ vac_test_clean <- vac_test_clean %>%
   )
 
 
-
-
-
-
 #create days since test
 vac_test_clean <- vac_test_clean %>% mutate(days_vacc_1_test = as.numeric(dt_inicio_sintomas - d1_data_aplicacao),
                                             days_vacc_2_test = as.numeric(dt_inicio_sintomas - d2_data_aplicacao),
@@ -268,7 +244,6 @@ vac_test_clean <- vac_test_clean %>% mutate(vs_type = case_when(vs_type == "Ad26
                                           vs_type=fct_relevel(factor(vs_type),"uv")) %>% filter(!str_detect(as.character(vs_type),"Ad26_v2")) %>% droplevels()
 
 # mutate: converted 'vs_type' from character to factor (0 new NA)
-#filter: removed 5 rows (<1%), 17,260,915 rows remaining
 
 vac_test_clean <- vac_test_clean %>% mutate(vacc_3_type=case_when(
   str_detect(vacc_status,"v3_")~ paste(d1_nome_vacina,d3_nome_vacina,sep = "-")))
@@ -279,14 +254,13 @@ vac_test_clean <- vac_test_clean %>% mutate(vacc_3_type=case_when(
 
 # Drop inconsistencies -filter: 
 vac_test_clean <- vac_test_clean %>% filter(dt_coleta<"2021-12-09", dt_coleta+21>dt_inicio_sintomas)
-#filter: removed 85,189 rows (<1%), 17,175,726 rows remaining
+
 ##Create variable for propensity scores-filter
 vac_test_clean <- vac_test_clean %>% mutate(psm_vacc=if_else(vacc_status %in% c("uv","v1_0:6","v1_7:13"),"UVacc","Vacc"),
                                             date_year=as.numeric(dt_inicio_sintomas-as.Date("2021-01-01")),
                                             outcome_confirmado=case_when(outcome=="Hosp_Death" & confirmado=="Confirmado"~"Hosp_Death_Positive",
                                                                          outcome!="Hosp_Death" & confirmado=="Confirmado"~"Outpatient_Positive",
                                                                          confirmado=="Negativo"~"Negative")) %>% filter(sexo!="I",sexo!="NA",!is.na(sexo),uf!="99") %>% droplevels()
-#filter: removed 1,153 rows (<1%), 17,174,573 rows remaining
 
 # Drop missing values-  ## Recode gestante and puerpera (clear errors), recode age greater or equal 100 as 100
 vac_test_clean <- vac_test_clean  %>% drop_na(cod_ibge,sexo,idade,dt_coleta) %>% mutate(uf=fct_relevel(uf,"35"),
@@ -316,12 +290,12 @@ vac_test_clean %>% filter(is.na(cod_rgi)) %>% count(uf)
 vac_test_clean <- vac_test_clean %>% mutate(cod_rgi=factor(if_else(is.na(cod_rgi),"530001",cod_rgi)))
 vac_test_clean %>% filter(is.na(cod_rgi)) %>% count(uf)
 
-saveRDS(vac_test_clean,"db_tnd_analysis.RDS")
+saveRDS(vac_test_clean,"analysis.RDS")
 
 
 
 ### addendum 
-vac_test_clean <- read_rds("db_tnd_analysis.RDS")
+vac_test_clean <- read_rds("analysis.RDS")
 
 
 
@@ -376,6 +350,6 @@ vac_test_clean <- vac_test_clean  %>% drop_na(cod_ibge,sexo,idade,dt_coleta) %>%
          time_2nd_3rd=if_else(str_detect(vs_type2,"CV_v3_"),d3_data_aplicacao-d2_data_aplicacao,NULL),
          vs_type2=fct_relevel(vs_type2,"uv"))
 
-saveRDS(vac_test_clean,"db_tnd_analysis_rev.RDS")
+saveRDS(vac_test_clean,"analysis_rev.RDS")
 
 View = function(x) { utils::View(x)} #make possible to cancel view command
