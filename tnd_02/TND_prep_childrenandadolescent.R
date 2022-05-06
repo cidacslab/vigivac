@@ -2,17 +2,15 @@ library(data.table)
 library(tibble)
 library(dplyr)
 library(magrittr)
-library(plotly)
 library(arrow)
 library(tidyverse)
 library(tidylog)
 library(tidytable)
 library(lubridate)
-library(summarytools)
-library(gtsummary)
 
 
-tnd=data.table::rbindlist(lapply(Sys.glob("/Users/pilarveras/Desktop/tnd19042022_gestantes_03052022.parquet"), arrow::read_parquet))
+
+tnd=data.table::rbindlist(lapply(Sys.glob("//"), arrow::read_parquet))
 
 ##STEP 0 - Creating variable of valid collection date (dt_coleta_valid)
 ##This step here was included only because we had problems with collection date in or database (2022-03-01)
@@ -226,7 +224,7 @@ tnd_v13 <- tnd_v12 %>% mutate.(
     days_vacc_2_test >= 56 & days_vacc_2_test <= 69 ~ "v2_56:69",
     days_vacc_2_test >= 70 & days_vacc_2_test <= 83 ~ "v2_70:83",
     days_vacc_2_test >= 84 & days_vacc_2_test <= 97 ~ "v2_84:97",
-    days_vacc_2_test >= 98 ~ "v2_90+",
+    days_vacc_2_test >= 98 ~ "v2_98+",
     days_vacc_1_test >= 0 & days_vacc_1_test <= 6 ~ "v1_0:6",
     days_vacc_1_test >= 7 & days_vacc_1_test <= 13 ~ "v1_7:13",
     days_vacc_1_test >= 14 & (days_vacc_2_test < 0 | is.na(days_vacc_2_test)) ~ "v1_p14+",
@@ -244,12 +242,7 @@ tnd_v13 <- tnd_v12 %>% mutate.(
     is.na(days_vacc_1_test) | days_vacc_1_test < 0 ~ "uv"))
 
 
-
-##In case you want to increase the lenght of time, Include: 
-##days_vacc_2_test >= 98 & days_vacc_2_test <= 111 ~ "v2_14:15",
-###days_vacc_2_test >= 112 & days_vacc_2_test <= 125 ~ "v2_16:17"
-
-##STEP 11 - Excluding (for adolescents) registers with third dose register
+##STEP 11 - Excluding (for adolescents and children) registers with third dose register
 ##This step is only necessary if you don't want to check booster those yet.
 ##If you do want to include booster, you must treat differently your vaccination status. 
 
@@ -271,7 +264,7 @@ names(allvac)
 
 allvac = allvac %>% mutate(SE=epiweek(dt_coleta_valid))
 
-##Inly for childrens analysis 
+##Only for childrens analysis 
 allvac = allvac %>% mutate(mes=month(dt_coleta_valid))
 
 
@@ -294,9 +287,6 @@ allvac = allvac %>% mutate.(
       raca = fct_explicit_na(factor(raca))
     )
 
-##Only adolescents
-allvac %>% count(gestante,sort=T) %>% head(5)
-allvac %>% count(puerpera,sort=T) %>% head(5)
 
 
 ##Including variable of Brazilian Deprivation Index
@@ -328,6 +318,7 @@ allvac <- allvac %>%
 cv_fix = allvac %>% filter(str_detect(vs_type, "CV|uv"))
 cv_fix %>% count(VOC,sort=T) %>% head(15)
 
+##Adolescent analysis - BNT162b2
 bnt_fix = allvac %>% filter(str_detect(vs_type, "BNT|uv"))
 bnt_fix %>% count(vs_type,sort=T) %>% head(10)
 
@@ -349,6 +340,6 @@ bnt_fix = bnt_fix %>% mutate.(diff_vac = d2_data_aplicacao - d1_data_aplicacao) 
   filter(diff_vac>=14 | is.na(d1_data_aplicacao)|is.na(d2_data_aplicacao))
 
 
-saveRDS(cv_fix, "/Users/pilarveras/Desktop/TND_CV_19042022_6a11_25042022.rds")
+saveRDS(cv_fix, "cv_fix.rds")
 
-saveRDS(bnt_fix, "/Users/pilarveras/Desktop/TND_BNT_19042022_5a11_25042022.rds")
+saveRDS(bnt_fix, "bnt_fix.rds")
