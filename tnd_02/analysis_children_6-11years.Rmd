@@ -1,0 +1,196 @@
+---
+title: "Symptomatic Infection and Severe Outcomes among Children from 6-11 years"
+author: "CIDACS-Fiocruz"
+date: "4/13/2022"
+output: html_document
+---
+
+## The analysis by  
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Teste de sensibilidade 
+
+
+
+library(knitr)
+library(magrittr)
+library(tidyverse)
+library(magrittr)
+library(tidytable)
+library(lubridate)
+knitr::opts_chunk$set(echo = FALSE)
+
+cv = readRDS("/.rds")
+
+## Relevel vaccine status (the reference here must me be unvaccinated individuals - uv)
+
+
+cv$status_vacinal=as.factor(cv$status_vacinal)
+cv$status_vacinal=relevel(cv$status_vacinal,ref="uv")
+
+##Converting all variables from our model to categorical  
+##For analysis model all variables included must be categorical 
+
+
+cv$idade=as.factor(cv$idade)
+cv$confirmado = as.factor(cv$confirmado)
+cv$q_measure_1f_12 = as.factor(cv$q_measure_1f_12)
+cv$prev_infect=as.factor(cv$prev_infect) 
+cv$prev_infect=relevel(cv$prev_infect,ref="Not previous infected")
+cv$mes=as.factor(cv$mes)
+cv$nome_grande_regiao=as.factor(cv$nome_grande_regiao)
+
+
+
+```
+
+
+## Tabela Demográfica da população entre 6-11 anos. 
+
+```{r echo=FALSE, results='asis'}
+
+library(gtsummary)
+
+cv_v1 = cv %>% select(id_vigvac,confirmado,idade,sexo,raca,
+                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, mes)
+cv_all_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac,digits = all_categorical() ~ c(0, 1))
+
+print(cv_all_char)
+
+
+```
+
+## Tabela dos testes positivos e negativos 
+Estratificados por status vacinal e por tempo após primeira e segunda dose. 
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+#Table Characteristic for the omicron group 
+cv_v1 = cv %>% select(id_vigvac,confirmado, status_vacinal)
+cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(cv_char)
+
+```
+
+## Symptomatic Infection - Children - 6-11 years
+### ODDS RATIO and VE:  
+### Crude Model
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+
+
+#Model for Symptomatic infection
+
+##Odd Ration - crude
+cv_crude = glm(confirmado == "Confirmado" ~ status_vacinal,
+               family = binomial, data = cv)
+cv_crude_results = model_parameters(
+  cv_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-cv_crude_results$Coefficient)*100
+high = (1-cv_crude_results$CI_low)*100
+low = (1-cv_crude_results$CI_high)*100
+
+cv_crude_results$VE= VE
+cv_crude_results$high = high
+cv_crude_results$low = low
+
+kable(cv_crude_results[1:8,], caption = "Odds Ratio - Crude - Symptomatic Infection - Childrens 6-11 anos",digits = 2)
+
+
+```
+
+### Adjusted model
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+library(logistf)
+
+
+##Odd Ratio - Adjusted 
+
+cv_adj = glm(confirmado == "Confirmado"~status_vacinal+mes+idade+raca+q_measure_1f_12+n_comorb+prev_infect+nome_grande_regiao,family = binomial, data = cv)
+
+cv_adj_results = model_parameters(
+  cv_adj, exponentiate = T, ci_method="wald") 
+
+VE = (1-cv_adj_results$Coefficient)*100
+high = (1-cv_adj_results$CI_low)*100
+low = (1-cv_adj_results$CI_high)*100
+
+cv_adj_results$VE= VE
+cv_adj_results$high = high
+cv_adj_results$low = low
+
+kable(cv_adj_results[1:20,], caption = "Odds Ratio - adjusted model- Symptomatic Infection - Children 6-11 years", digits = 2)
+
+
+
+
+```
+
+
+
+## Omicron period - Severe outcomes (hospitalisation or death)
+### ODDS RATIO
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+library(logistf)
+
+#Severe outcomes 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_posit = cv %>% filter(confirmado=="Confirmado" & outcome == "Hosp_Death")
+omicsev=bind_rows.(omic_neg,omic_posit)
+
+
+##Odd Ratio - crude
+omicsev_crude = glm(confirmado == "Confirmado" ~ status_vacinal,
+                 family = binomial, data = omicsev)
+omicsev_crude_results = model_parameters(
+  omicsev_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_crude_results$Coefficient)*100
+high = (1-omicsev_crude_results$CI_low)*100
+low = (1-omicsev_crude_results$CI_high)*100
+
+omicsev_crude_results$VE= VE
+omicsev_crude_results$high = high
+omicsev_crude_results$low = low
+
+kable(omicsev_crude_results[1:6,], caption = "Odds Ratio - Crude - Severe Outcomes - Omicron", digits = 2,format.args = list(scientific = FALSE))
+
+
+
+##Odd Ratio - Adjusted 
+omicsev_adj = logistf(data=omicsev, confirmado == "Confirmado" ~ status_waning+mes+sexo+idade+n_comorb+prev_infect+nome_grande_regiao,
+                  firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
+
+
+omicsev_adj_results = model_parameters(fitsev, exponentiate = T, ci_method = "profile",  digits = 2)
+
+
+VE = (1-omicsev_adj_results$Coefficient)*100
+high = (1-omicsev_adj_results$CI_low)*100
+low = (1-omicsev_adj_results$CI_high)*100
+
+omicsev_adj_results$VE= VE
+omicsev_adj_results$high = high
+omicsev_adj_results$low = low
+
+
+kable(omicsev_adj_results[1:6,], caption = "Odds Ratio - Adjusted - Severe Outcomes - Omicron", digits = 2, format.args = list(scientific = FALSE))
+
+
+
+```
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

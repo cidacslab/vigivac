@@ -1,0 +1,335 @@
+---
+title: "VE analysis among adolescent 11-17 years"
+author: "CIDACS-Fiocruz"
+date: "3/23/2022"
+output: html_document
+---
+## The analysis
+
+```{r setup, include=FALSE}
+library(knitr)
+library(magrittr)
+library(tidyverse)
+library(magrittr)
+library(tidytable)
+knitr::opts_chunk$set(echo = FALSE)
+
+bnt = readRDS(".rds")
+
+## Relevel vaccine status (the reference here must me be unvaccinated individuals - uv)
+
+bnt$status_waning=as.factor(bnt$status_waning)
+bnt$status_waning=relevel(bnt$status_waning,ref="uv")
+
+
+##Converting all variables from our model to categorical  
+##For analysis model all variables included must be categorical 
+
+bnt$sexo=as.factor(bnt$sexo)
+bnt$idade=as.factor(bnt$idade)
+bnt$confirmado = as.factor(bnt$confirmado)
+bnt$q_measure_1f_12 = as.factor(bnt$q_measure_1f_12)
+bnt$prev_infect=as.factor(bnt$prev_infect) 
+bnt$prev_infect=relevel(bnt$prev_infect,ref="Not previous infected")
+bnt$SE=as.factor(bnt$SE) 
+bnt$nome_grande_regiao=as.factor(bnt$nome_grande_regiao)
+bnt$gestante = as.factor(bnt$gestante)
+bnt$puerpera = as.factor(bnt$puerpera)
+bnt$hosp_event = as.factor(bnt$hosp_event)
+bnt$death_event = as.factor(bnt$death_event)
+
+
+```
+
+
+## Omicron and delta period
+### Table of characteristic:
+
+
+```{r echo=FALSE, results='asis'}
+
+library(gtsummary)
+
+bnt_v1 = bnt %>% select(id_vigvac,confirmado,status_waning,idade,sexo,raca,
+                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, gestante, puerpera, hosp_event,death_event)
+bnt_all_char = bnt_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac,digits = all_categorical() ~ c(0, 1))
+
+print(bnt_all_char)
+
+
+```
+
+## Omicron period - Symptomatic Infection 
+### Table of characteristic:
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+
+omic = bnt %>% filter(VOC == "Omicron") 
+
+#Table Characteristic for the omicron group 
+omic = omic %>% select(id_vigvac,confirmado,idade,sexo,raca,
+                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, gestante, puerpera,hosp_event,death_event)
+omic_char = omic %>% tbl_summary(by = confirmado, include = -id_vigvac, digits = all_categorical() ~ c(0, 1))
+
+print(omic_char)
+
+```
+
+## Omicron period - Symptomatic Infection 
+### Number of test positives and test negatives:
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+
+omic = bnt %>% filter(VOC = "Omicron") 
+
+#Table Characteristic for the omicron group 
+omic = omic %>% select(id_vigvac,confirmado, status_waning)
+omic_char = omic %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(omic_char)
+
+```
+
+## Omicron period - Symptomatic Infection 
+### ODDS RATIO 
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+
+
+omic = bnt %>% filter(VOC=="Omicron")
+
+#Model for Symptomatic infection
+
+##Odd Ration - crude
+omic_crude = glm(confirmado == "Confirmado" ~ status_waning,
+               family = binomial, data = omic)
+omic_crude_results = model_parameters(
+  omic_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omic_crude_results$Coefficient)*100
+high = (1-omic_crude_results$CI_low)*100
+low = (1-omic_crude_results$CI_high)*100
+
+omic_crude_results$VE= VE
+omic_crude_results$high = high
+omic_crude_results$low = low
+
+kable(omic_crude_results[1:24,], caption = "Odds Ratio - Crude - Symptomatic Infection - omicron",digits = 2)
+  
+##Odd Ratio - Adjusted 
+
+omic_adj = glm(confirmado == "Confirmado"~status_waning+SE+sexo+idade+raca+q_measure_1f_12+n_comorb+prev_infect+gestante+puerpera+nome_grande_regiao,family = binomial, data = omic)
+
+omic_adj_results = model_parameters(
+  omic_adj, exponentiate = T, ci_method="wald") 
+
+VE = (1-omic_adj_results$Coefficient)*100
+high = (1-omic_adj_results$CI_low)*100
+low = (1-omic_adj_results$CI_high)*100
+
+omic_adj_results$VE= VE
+omic_adj_results$high = high
+omic_adj_results$low = low
+
+kable(omic_adj_results[1:24,], caption = "Odds Ratio - Adjusted - Symptomatic Infection - Omicron", digits = 2)
+
+```
+
+## Omicron period - Severe outcomes (hospitalisation or death)
+### Table of characteristic 
+
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(gtsummary)
+
+omic = bnt %>% filter(VOC == "Omicron")
+
+#Severe outcomes 
+omic_neg = omic %>% filter(confirmado == "Negativo")
+omic_posit = omic %>% filter(confirmado=="Confirmado" & outcome == "Hosp_Death")
+omicsev=bind_rows.(omic_neg,omic_posit)
+
+##Table of characteristic from this group 
+omicsev = omicsev %>% select(id_vigvac,confirmado,idade,sexo,raca,
+                         q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect,gestante,puerpera)
+omicsev_char = omicsev %>% tbl_summary(by = confirmado, include = -id_vigvac, digits = all_categorical() ~ c(0, 1))
+
+print(omicsev_char)
+
+```
+
+## Omicron period - Severe outcomes (hospitalisation or death)
+### Number of test postives and test negatives
+
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(gtsummary)
+
+omic = bnt %>% filter(VOC == "Omicron")
+
+#Severe outcomes 
+omic_neg = omic %>% filter(confirmado == "Negativo")
+omic_posit = omic %>% filter(confirmado=="Confirmado" & outcome == "Hosp_Death")
+omicsev=bind_rows.(omic_neg,omic_posit)
+
+##Table of characteristic from this group 
+omicsev = omicsev %>% select(confirmado,status_waning)
+omicsev_char = omicsev %>% tbl_summary(by = confirmado,  percent = "row", digits = all_categorical() ~ c(0, 2))
+
+print(omicsev_char)
+
+```
+
+## Omicron period - Severe outcomes (hospitalisation or death)
+### ODDS RATIO
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+
+omic = bnt %>% filter(VOC == "Omicron") 
+
+#Severe outcomes 
+omic_neg = omic %>% filter(confirmado == "Negativo")
+omic_posit = omic %>% filter(confirmado=="Confirmado" & outcome == "Hosp_Death")
+omicsev=bind_rows.(omic_neg,omic_posit)
+
+
+
+##Odd Ratio - crude
+omicsev_crude = glm(confirmado == "Confirmado" ~ status_waning,
+                 family = binomial, data = omicsev)
+omicsev_crude_results = model_parameters(
+  omicsev_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_crude_results$Coefficient)*100
+high = (1-omicsev_crude_results$CI_low)*100
+low = (1-omicsev_crude_results$CI_high)*100
+
+omicsev_crude_results$VE= VE
+omicsev_crude_results$high = high
+omicsev_crude_results$low = low
+
+
+
+kable(omicsev_crude_results[1:24,], caption = "Odds Ratio - Crude - Severe Outcomes - Omicron", digits = 2,format.args = list(scientific = FALSE))
+
+
+##Odd Ratio - Adjusted 
+omicsev_adj = glm(confirmado == "Confirmado" ~ status_waning+SE+sexo+idade+raca+q_measure_1f_12+n_comorb+prev_infect+gestante+puerpera+nome_grande_regiao,
+               family = binomial, data = omicsev)
+omicsev_adj_results = model_parameters(
+  omicsev_adj, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_adj_results$Coefficient)*100
+high = (1-omicsev_adj_results$CI_low)*100
+low = (1-omicsev_adj_results$CI_high)*100
+
+omicsev_adj_results$VE= VE
+omicsev_adj_results$high = high
+omicsev_adj_results$low = low
+
+kable(omicsev_adj_results[1:24,], caption = "Odds Ratio - Adjusted - Severe Outcomes - Omicron", digits = 2, format.args = list(scientific = FALSE))
+
+
+```
+
+## Delta period - Symptomatic Infection 
+### Table of characteristic:
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+
+delta = bnt %>% filter(VOC == "Delta") 
+
+#Table Characteristic for the omicron group 
+delta = delta %>% select(id_vigvac,confirmado,idade,sexo,raca,
+                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, gestante, puerpera,hosp_event,death_event)
+delta_char = delta %>% tbl_summary(by = confirmado, include = -id_vigvac, digits = all_categorical() ~ c(0, 1))
+
+print(delta_char)
+
+```
+
+## omic period - Symptomatic Infection 
+### Number of test positives and test negatives:
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+
+delta = bnt %>% filter(VOC == "Delta") 
+
+#Table Characteristic for the omicron group 
+delta = delta %>% select(id_vigvac,confirmado, status_waning)
+delta_char = delta %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(delta_char)
+
+```
+
+## omicron period - Symptomatic Infection 
+### ODDS RATIO 
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+
+
+delta = bnt %>% filter(VOC=="Delta")
+
+#Model for Symptomatic infection
+
+##Odd Ration - crude
+delta_crude = glm(confirmado == "Confirmado" ~ status_waning,
+               family = binomial, data = delta)
+delta_crude_results = model_parameters(
+  delta_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-delta_crude_results$Coefficient)*100
+high = (1-delta_crude_results$CI_low)*100
+low = (1-delta_crude_results$CI_high)*100
+
+delta_crude_results$VE= VE
+delta_crude_results$high = high
+delta_crude_results$low = low
+
+kable(delta_crude_results[1:12,], caption = "Odds Ratio - Crude - Symptomatic Infection - Delta",digits = 2)
+  
+##Odd Ratio - Adjusted 
+
+omic_adj = glm(confirmado == "Confirmado"~status_waning+SE+sexo+idade+raca+q_measure_1f_12+n_comorb+prev_infect+gestante+puerpera+nome_grande_regiao,family = binomial, data = delta)
+
+delta_adj_results = model_parameters(
+  omic_adj, exponentiate = T, ci_method="wald") 
+
+VE = (1-delta_adj_results$Coefficient)*100
+high = (1-delta_adj_results$CI_low)*100
+low = (1-delta_adj_results$CI_high)*100
+
+delta_adj_results$VE= VE
+delta_adj_results$high = high
+delta_adj_results$low = low
+
+kable(delta_adj_results[1:12,], caption = "Odds Ratio - Adjusted - Symptomatic Infection - Delta", digits = 2)
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
