@@ -13,7 +13,7 @@ library(lubridate)
 tnd=data.table::rbindlist(lapply(Sys.glob("//"), arrow::read_parquet))
 
 ##STEP 0 - Creating variable of valid collection date (dt_coleta_valid)
-##This step here was included only because we had problems with collection date in or database (2022-03-01)
+##This step here was included only because we had problems with collection date in or database
 ##The correction was performed based on the mistakes found in the years of dt_coleta. 
 ##Therefore, this step, and the use of this variable is only necessary, if dt_coleta in our database 
 ##continues to present this problem. 
