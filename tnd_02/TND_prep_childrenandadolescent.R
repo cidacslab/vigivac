@@ -13,10 +13,6 @@ library(lubridate)
 tnd=data.table::rbindlist(lapply(Sys.glob("//"), arrow::read_parquet))
 
 ##STEP 0 - Creating variable of valid collection date (dt_coleta_valid)
-##This step here was included only because we had problems with collection date in or database
-##The correction was performed based on the mistakes found in the years of dt_coleta. 
-##Therefore, this step, and the use of this variable is only necessary, if dt_coleta in our database 
-##continues to present this problem. 
 
 tnd = tnd %>% mutate(dt_coleta_valid=case_when(
   dt_inicio_sintomas<=dt_coleta ~ dt_coleta,
@@ -47,7 +43,7 @@ tnd %>% count(firstcasedate,sort=T) %>% head(5)
 
 max_date <- as.Date("2022-04-19") ##Última data do banco de vacinação 
 
-tnd_v1 = tnd %>% filter(dt_coleta_valid>"2021-04-26" & dt_coleta_valid < max_date) ##COmeço da vacinação em criança
+tnd_v1 = tnd %>% filter(dt_coleta_valid>"2021-01-21" & dt_coleta_valid < max_date)
 tnd_v2 = tnd_v1 %>% filter(assintomatico==0)
 tnd_v2 = tnd_v2 %>% filter(non_symptom_info==0)
 
