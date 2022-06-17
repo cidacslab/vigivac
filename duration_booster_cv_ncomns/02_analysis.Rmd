@@ -1,0 +1,801 @@
+---
+title: "Duration Booster - CoronaVac"
+author: "Thiago"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3.0
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F, fig.width = 8, fig.height = 5)
+pacman::p_load(tidyverse, tidylog, mgcv, tidytable,lubridate,gtsummary,survival, showtext, gt, kableExtra,ggh4x,janitor)
+source("funs.R")
+theme_set(theme_light())
+tnd_cv <- read_rds("tnd_cv_1804.RDS")
+tnd_cv_pcr <- tnd_cv |> filter(tipo_teste=="RT-PCR")
+tnd_cv_ag <- tnd_cv |> filter(tipo_teste=="Antígeno")
+tnd_cv_or <- tnd_cv %>% filter(vs_type2 != "uv") %>% mutate(vs_type2 = fct_relevel(vs_type2,"CV_v2_181")) %>% droplevels()
+theme_gtsummary_compact()
+theme_gtsummary_journal(journal = "nejm")
+
+# Create subset for sensitivity (delay records)
+tnd_cv0803 <- tnd_cv |> filter(dt_coleta_valid<"2022-03-08")
+
+```
+
+
+```{r}
+#set theme
+theme_Publication <- function(base_size = 14, base_family = "sans") {
+  library(grid)
+  library(ggthemes)
+  (theme_foundation(base_size = base_size, base_family = base_family)
+  + theme(
+      plot.title = element_text(
+        face = "plain",
+        size = rel(1.1), hjust = 0.5, margin = margin(0, 0, 20, 0)
+      ),
+      text = element_text(),
+      panel.background = element_rect(colour = NA),
+      panel.border = element_rect(colour = NA),
+      axis.title = element_text(face = "bold", size = rel(0.8)),
+      axis.title.y = element_text(angle = 90, vjust = 2),
+      axis.title.x = element_text(vjust = -0.2),
+      axis.text = element_text(),
+      axis.text.x = element_text(
+        color = "black", face = "plain", size = 8,
+        margin = margin(t = 6)
+      ),
+      axis.line.x = element_line(color = "black", size = 1),
+      axis.ticks.x = element_line(color = "black", size = 1.5),
+      axis.line.y = element_line(colour = "black"),
+      axis.ticks = element_line(),
+      panel.grid.major = element_line(colour = "#f0f0f0"),
+      panel.grid.major.y = element_line(color = "grey90", size = .6),
+      plot.background = element_rect(fill = "white", color = "white"),
+      panel.grid.minor = element_blank(),
+      legend.key = element_rect(colour = NA),
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.box = "vetical",
+      legend.key.size = unit(0.5, "cm"),
+      # legend.margin = unit(0, "cm"),
+      legend.title = element_text(face = "plain", size = rel(0.8)),
+      plot.margin = unit(c(10, 5, 5, 5), "mm"),
+      strip.background = element_rect(colour = "#f0f0f0", fill = "#f0f0f0"),
+      strip.text = element_text(colour = "black")
+    ))
+}
+
+
+tnd_cv %>%
+    mutate(vacc_type = case_when(
+    str_detect(vs_type2, "^Ad26") ~ "Ad26",
+    str_detect(vs_type2, "^CV") ~ "CoronaVac",
+    str_detect(vs_type2, "^AZ") ~ "ChAdOx1",
+    str_detect(vs_type2, "^BNT162b2") ~ "BNT162b2",
+    str_detect(vs_type2, "uv") ~ "Unvaccinated"
+  )) |> 
+  ggplot(aes(dt_coleta_valid, fill = vacc_type)) +
+  geom_histogram(binwidth = 7, color = "white", alpha = 0.7, size = 0.25) +
+  labs(y = "No. Individuals", x = "Sample collection date", fill = "") +
+  scale_fill_manual(values = c("CoronaVac" = "forestgreen","Unvaccinated"= "firebrick")) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 3.5e5), breaks = seq(0, 3.5e5, .5e5)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b\n%Y", limits = c(as.Date("2021-12-31"),as.Date("2022-05-01")))+
+  theme(legend.position = "bottom") +
+  theme_Publication() +
+  theme(legend.position = "bottom", panel.spacing.x = unit(1, "lines")) +
+  facet_wrap(~confirmado, labeller = as_labeller(c("Negativo" = "Controls", "Confirmado" = "Cases")))
+
+
+# create plot of variants
+path <- "gisaid_variants_statistics_2022_05_05_0658.xlsx"
+path %>%
+  readxl::excel_sheets() %>%
+  set_names() %>%
+  map_df(~ readxl::read_excel(path = path, sheet = .x), .id = "sheet") %>%
+  janitor::clean_names() %>%
+  fill(x1, .direction = "down") %>%
+  filter(!is.na(x1)) %>%
+  mutate(count_total = coalesce(!!!select(., starts_with("voc")))) %>%
+  relocate(count_total, .after = x1) %>%
+  select(!matches("^voc|^voi"), -readme_variants_download_package) %>%
+  pivot_longer(cols = -c(sheet:count_total), names_to = "date", values_to = "value") %>%
+  filter(x1 == "Brazil", !is.na(count_total)) %>%
+  pivot_wider(names_from = count_total, values_from = value) %>%
+  filter(!is.na(count)) %>%
+  mutate(
+    date = str_remove(date, "^x"),
+    date = lubridate::ymd(date)
+  ) %>%
+  pivot_wider(names_from = sheet, values_from = count) %>%
+  mutate(across(3:last_col(), ~ .x * 100 / total)) %>%
+  select(-x1) |>
+  janitor::clean_names() %>%
+  select(-voc_beta) |>
+  mutate(voc_wt = 100 - rowSums(across(voc_omicron:voc_gamma), na.rm = T)) |>
+  arrange(date) |>
+  select(-total) %>%
+  pivot_longer(names_to = "voc", values_to = "pct", cols = voc_omicron:voc_wt) |>
+  filter(date > "2021-01-18") |>
+  ggplot(aes(date, pct, fill = voc)) +
+  labs(x="Date",y="Relative Frequency %",fill="Variant")+
+  geom_area(color = "white", position = "stack", size = 0.5, alpha = 0.7) +
+  scale_x_date(breaks = "1 month", date_labels = "%b\n%Y", limits = c(NA_Date_, as.Date("2022-05-01"))) +
+  scale_fill_discrete(labels=c("Alpha","Delta","Gamma","Omicron","Non-VOC/VOI"))+
+  theme_Publication()
+
+```
+
+
+# TND Tables
+
+## Overall
+
+```{r tnd_tables}
+tnd_cv %>%
+    mutate(vacc_type = case_when(
+    str_detect(vs_type2, "^Ad26") ~ "Ad26",
+    str_detect(vs_type2, "^CV") ~ "CoronaVac",
+    str_detect(vs_type2, "^AZ") ~ "ChAdOx1",
+    str_detect(vs_type2, "^BNT162b2") ~ "BNT162b2",
+    str_detect(vs_type2, "uv") ~ "Unvaccinated"
+  )) %>%
+  select(
+    idade, sexo, raca,age_group, capital_not, tipo_teste,
+    q_measure_1f_12,diabetes,obesidade, imunossupressao, drespiratoria, dcardiaca,
+    drc, n_comorb_cat, prev_infec, confirmado, diff1_2,diff2_3,hosp_event,
+    death_event, outcome, vacc_type,  id_vigvac,vs_type2
+  ) %>%
+  mutate(
+    hosp_event = fct_explicit_na(hosp_event),
+    death_event = fct_explicit_na(death_event),
+    third_dose = str_detect(vs_type2,"v3"),
+    q_measure_1f_12 = fct_explicit_na(q_measure_1f_12)
+  ) %>%
+  mutate.(individuals=row_number.(),.by=id_vigvac) %>%
+  mutate(confirmado=fct_recode(confirmado,
+                               "Positive"= "Confirmado",
+                               "Negative"= "Negativo")) %>%
+  relocate(individuals, .before=idade) %>%
+  tbl_summary(
+          by = confirmado,
+          include = -id_vigvac,
+          digits = list(all_categorical() ~ c(0, 1)),
+          label = list(
+            individuals ~ "Individuals",
+            idade ~ "Age",
+            q_measure_1f_12 ~ "Deprivation Index",
+            sexo ~ "Sex-Female",
+            confirmado ~ "Test Result",
+            raca ~ "Race",
+            capital_not ~ "Residence in capital",
+            tipo_teste ~ "Test type",
+            diabetes ~ "Diabetes",
+            obesidade ~ "Obesity",
+            imunossupressao ~ "Immunosuppression",
+            drespiratoria ~ "Chronic respiratory disease",
+            dcardiaca ~ "Cardiac disease",
+            drc ~ "Chronic Kidney Disease",
+            n_comorb_cat ~ "No. comorbidities",
+            prev_infec ~ "Previously infected",
+            hosp_event ~ "Hospitalization",
+            death_event ~ "Death",
+            outcome ~ "Severe outcome",
+            diff1_2 ~ "Interval 1st 2nd",
+            diff2_3 ~ "Interval 2nd 3rd"
+          ),
+          value = list(
+            sexo ~ "F",
+            individuals ~ "1",
+            capital_not ~ "Capital",
+            outcome ~ "Hosp_Death",
+            death_event ~ "Death-related",
+            hosp_event ~ "Hospitalization"
+        )) %>%
+        bold_labels()
+
+
+
+tnd_cv %>%
+    mutate(vacc_type = case_when(
+    str_detect(vs_type2, "^Ad26") ~ "Ad26",
+    str_detect(vs_type2, "^CV") ~ "CoronaVac",
+    str_detect(vs_type2, "^AZ") ~ "ChAdOx1",
+    str_detect(vs_type2, "^BNT162b2") ~ "BNT162b2",
+    str_detect(vs_type2, "uv") ~ "Unvaccinated"
+  )) %>%
+  select(
+    idade, sexo, raca,age_group, capital_not, tipo_teste,
+    q_measure_1f_12,diabetes,obesidade, imunossupressao, drespiratoria, dcardiaca,
+    drc, n_comorb_cat, prev_infec, confirmado, diff1_2,diff2_3,hosp_event,
+    death_event, outcome, vacc_type,  id_vigvac,vs_type2
+  ) %>%
+  mutate(
+    hosp_event = fct_explicit_na(hosp_event),
+    death_event = fct_explicit_na(death_event),
+    third_dose = str_detect(vs_type2,"v3"),
+    q_measure_1f_12 = fct_explicit_na(q_measure_1f_12)
+  ) %>%
+  mutate.(individuals=row_number.(),.by=id_vigvac) %>%
+  mutate(confirmado=fct_recode(confirmado,
+                               "Positive"= "Confirmado",
+                               "Negative"= "Negativo")) %>%
+  relocate(individuals, .before=idade) %>%
+  tbl_summary(
+          by = vacc_type,
+          include = -id_vigvac,
+          digits = list(all_categorical() ~ c(0, 1)),
+          label = list(
+            individuals ~ "Individuals",
+            idade ~ "Age",
+            q_measure_1f_12 ~ "Deprivation Index",
+            sexo ~ "Sex-Female",
+            confirmado ~ "Test Result",
+            raca ~ "Race",
+            capital_not ~ "Residence in capital",
+            tipo_teste ~ "Test type",
+            diabetes ~ "Diabetes",
+            obesidade ~ "Obesity",
+            imunossupressao ~ "Immunosuppression",
+            drespiratoria ~ "Chronic respiratory disease",
+            dcardiaca ~ "Cardiac disease",
+            drc ~ "Chronic Kidney Disease",
+            n_comorb_cat ~ "No. comorbidities",
+            prev_infec ~ "Previously infected",
+            hosp_event ~ "Hospitalization",
+            death_event ~ "Death",
+            outcome ~ "Severe outcome",
+            diff1_2 ~ "Interval 1st 2nd",
+            diff2_3 ~ "Interval 2nd 3rd"
+          ),
+          value = list(
+            sexo ~ "F",
+            individuals ~ "1",
+            capital_not ~ "Capital",
+            outcome ~ "Hosp_Death",
+            death_event ~ "Death-related",
+            hosp_event ~ "Hospitalization"
+        )) %>%
+        bold_labels()
+```
+
+\
+\
+
+```{r tnd_tables2}
+tnd_cv %>%
+    mutate(vacc_type = case_when(
+    str_detect(vs_type2, "^Ad26") ~ "Ad26",
+    str_detect(vs_type2, "^CV") ~ "CoronaVac",
+    str_detect(vs_type2, "^AZ") ~ "ChAdOx1",
+    str_detect(vs_type2, "^BNT162b2") ~ "BNT162b2",
+    str_detect(vs_type2, "uv") ~ "Unvaccinated"
+  )) %>%
+  select(
+    idade, sexo, raca,age_group, capital_not, tipo_teste,
+    q_measure_1f_12,diabetes,obesidade, imunossupressao, drespiratoria, dcardiaca,
+    drc, n_comorb_cat, prev_infec, confirmado, diff1_2,diff2_3,hosp_event,
+    death_event, outcome, vacc_type,  id_vigvac,vs_type2,vacc_type
+  ) %>%
+  mutate(
+    hosp_event = fct_explicit_na(hosp_event),
+    death_event = fct_explicit_na(death_event),
+    q_measure_1f_12 = fct_explicit_na(q_measure_1f_12)
+  ) %>%
+  mutate.(individuals=row_number.(),.by=id_vigvac) %>%
+  mutate(confirmado=fct_recode(confirmado,
+                               "Positive"= "Confirmado",
+                               "Negative"= "Negativo")) %>%
+  relocate(individuals, .before=idade) %>%
+  tbl_strata(
+    strata = vacc_type,
+    .tbl_fun =
+      ~ .x %>%
+        tbl_summary(
+          by = confirmado,
+          include = -id_vigvac,
+          digits = list(all_categorical() ~ c(0, 1)),
+          label = list(
+            individuals ~ "Individuals",
+            idade ~ "Age",
+            q_measure_1f_12 ~ "Deprivation Index",
+            sexo ~ "Sex-Female",
+            raca ~ "Race",
+            capital_not ~ "Residence in capital",
+            tipo_teste ~ "Test type",
+            diabetes ~ "Diabetes",
+            obesidade ~ "Obesity",
+            imunossupressao ~ "Immunosuppression",
+            drespiratoria ~ "Chronic respiratory disease",
+            dcardiaca ~ "Cardiac disease",
+            drc ~ "Chronic Kidney Disease",
+            n_comorb_cat ~ "No. comorbidities",
+            prev_infec ~ "Previously infected",
+            hosp_event ~ "Hospitalization",
+            death_event ~ "Death",
+            outcome ~ "Severe outcome",
+            diff1_2 ~ "Interval 1st 2nd",
+            diff2_3 ~ "Interval 2nd 3rd"
+          ),
+          value = list(
+            sexo ~ "F",
+            individuals ~ "1",
+            capital_not ~ "Capital",
+            outcome ~ "Hosp_Death",
+            death_event ~ "Death-related",
+            hosp_event ~ "Hospitalization"
+          )
+        ) %>%
+        bold_labels()
+  )
+```
+
+\
+
+## TND - CoronaVac - Age Group
+
+```{r tnd_tables_az}
+tnd_cv %>%
+  mutate(
+    outcome_confirmado = fct_recode(outcome_confirmado,
+      "Severe Pos" = "Hosp_Death_Positive"
+    ),
+    outcome_confirmado = fct_relevel(
+      outcome_confirmado,
+      "Negative",
+      "Outpatient_Positive",
+      "Severe Pos"
+    )
+  )%>%
+  droplevels() %>%
+  select(vs_type2, outcome_confirmado, age_group) %>%
+  mutate(vs_type2 = fct_relevel(
+    factor(vs_type2),
+    "uv",
+      "CV_v1_0:1",
+      "CV_v1_2",
+      "CV_v2_0:13",
+      "CV_v2_14:180",
+      "CV_v2_181",
+      "CV_v3_0:13_BNT162b2",
+      "CV_v3_14:30_BNT162b2",
+      "CV_v3_31:60_BNT162b2",
+      "CV_v3_61:90_BNT162b2",
+      "CV_v3_91:120_BNT162b2",
+      "CV_v3_121_BNT162b2",
+      "CV_v3_0:13_CV",
+      "CV_v3_14:30_CV",
+      "CV_v3_31:60_CV",
+      "CV_v3_61:90_CV",
+      "CV_v3_91:120_CV",
+      "CV_v3_121_CV"
+  )) %>%
+  tbl_strata(
+    strata = age_group,
+    .tbl_fun =
+      ~ .x %>% tbl_summary(
+        by = outcome_confirmado,
+        percent = "row",
+        label = list(
+          vs_type2 = "Vaccination Status",
+          voc = "VOC"
+        ),
+        digits = list(all_categorical() ~ c(0, 1))
+      ),
+    .combine_with = "tbl_stack"
+  ) %>% bold_labels() %>% as_gt %>% tab_options(table.width=pct(50))
+
+
+tnd_cv %>%
+  mutate(
+    outcome_confirmado = fct_recode(outcome_confirmado,
+      "Severe Pos" = "Hosp_Death_Positive"
+    ),
+    outcome_confirmado = fct_relevel(
+      outcome_confirmado,
+      "Negative",
+      "Outpatient_Positive",
+      "Severe Pos"
+    )
+  )%>%
+  droplevels() %>%
+  select(vs_type2, outcome_confirmado, age_group) %>%
+  mutate(vs_type2 = fct_relevel(
+    factor(vs_type2),
+    "uv",
+      "CV_v1_0:1",
+      "CV_v1_2",
+      "CV_v2_0:13",
+      "CV_v2_14:180",
+      "CV_v2_181",
+      "CV_v3_0:13_BNT162b2",
+      "CV_v3_14:30_BNT162b2",
+      "CV_v3_31:60_BNT162b2",
+      "CV_v3_61:90_BNT162b2",
+      "CV_v3_91:120_BNT162b2",
+      "CV_v3_121_BNT162b2",
+      "CV_v3_0:13_CV",
+      "CV_v3_14:30_CV",
+      "CV_v3_31:60_CV",
+      "CV_v3_61:90_CV",
+      "CV_v3_91:120_CV",
+      "CV_v3_121_CV"
+  )) %>%
+ tbl_summary(
+        by = outcome_confirmado,
+        percent = "row",
+        label = list(
+          vs_type2 = "Vaccination Status",
+          voc = "VOC"
+        ),
+        digits = list(all_categorical() ~ c(0, 1))
+      ) %>% bold_labels() %>% as_gt %>% tab_options(table.width=pct(50))
+```
+
+
+# median iqr >120d
+```{r}
+tnd_cv |> filter(vacc_status=="v3_121") |> tbl_summary(by=age_group,include=days_vacc_3_test)
+```
+
+
+# plot status by time
+
+```{r}
+tnd_cv |> filter(vs_type!="uv", str_detect(vs_type,"v3")) |> ggplot(aes(dt_coleta_valid,fill=vs_type))+geom_histogram(binwidth =7, color="white")+facet_wrap(~age_group)+ scale_x_date(date_breaks = "1 month", date_labels = "%b\n%Y", limits = c(as.Date("2021-12-31"),NA))
+```
+
+
+# tipo teste por faixa etaria
+```{r}
+tnd_cv |> tbl_summary(by=age_group,include=tipo_teste)
+```
+
+
+# VE
+
+## Infection
+
+```{r}
+infection <- models_fit(tnd_cv)
+infection_age<- tnd_cv %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(infection,infection_age,"Infection-Symptomatic")
+fun_plot_ve_type(infection,infection_age)
+
+```
+
+## Infection using only rt-pcr
+
+```{r}
+infection <- models_fit(tnd_cv_pcr)
+infection_age<- tnd_cv_pcr %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(infection,infection_age,"Infection-Symptomatic")
+fun_plot_ve_type(infection,infection_age)
+
+```
+
+## Infection using only ag
+
+```{r}
+infection <- models_fit(tnd_cv_ag)
+infection_age<- tnd_cv_ag %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(infection,infection_age,"Infection-Symptomatic")
+fun_plot_ve_type(infection,infection_age)
+
+```
+
+
+
+
+## Severe outcomes
+
+```{r}
+severe_db <- tnd_cv %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Severe")
+fun_plot_ve_type(severe,severe_age)
+```
+
+
+## Severe outcomes using only rt-pcr
+
+```{r}
+severe_db <- tnd_cv_pcr %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Severe")
+fun_plot_ve_type(severe,severe_age)
+```
+
+## Severe outcomes using only lateral-flow
+
+```{r}
+severe_db <- tnd_cv_ag %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Severe")
+fun_plot_ve_type(severe,severe_age)
+```
+
+
+
+## Plot combined
+
+```{r}
+severe_db <- tnd_cv %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+infection <- models_fit(tnd_cv)
+infection_age<- tnd_cv %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+
+df_plot <- infection %>%
+  mutate(model = "Symptomatic COVID-19") |>
+  bind_rows(infection_age %>% select(fit) %>% unnest(names_repair = "check_unique", cols = c(fit)) |> mutate(model = "Symptomatic COVID-19"), severe |> mutate(model = "Severe COVID-19"), severe_age %>% select(fit) %>% unnest(names_repair = "check_unique", cols = c(fit)) |> mutate(model = "Severe COVID-19")) |>
+  filter(str_detect(term, "CV_v3")) |>
+  mutate(age_group = case_when(
+    str_detect(age_group, "18-124|18-123") ~ "Overall",
+    str_detect(age_group, "18-59") ~ "18-59",
+    str_detect(age_group, "60-79") ~ "60-79",
+    str_detect(age_group, "80-124|80-123") ~ "\u2265 80"
+  ), age_group = fct_relevel(factor(age_group), "Overall", "18-59", "60-79")) |>
+  mutate(across(or:conf.high, ~ (1 - .x) * 100)) %>%
+  mutate(across(or:conf.high, ~ if_else(.x < (-1000) | .x > 1000, Inf, .x))) %>%
+  mutate(
+    type = case_when(
+      str_detect(term, "CV$") ~ "CV-Booster",
+      str_detect(term, "BNT162b2$") ~ "BNT162b2-Booster",
+      str_detect(term, "BNT162b2$|CV$", negate = T) ~ "No booster"
+    ),
+    model = fct_relevel(factor(model), "Severe COVID-19")
+  ) %>%
+  mutate(
+    term = str_remove(term, "CV_"),
+    term = str_remove(term, "_CV$"),
+    term = str_remove(term, "_BNT162b2$")
+  ) %>%
+  filter(type != "No booster") %>%
+  group_by(type, age_group) %>%
+  mutate(term = fct_case_when(
+    str_detect(term, "v3_0:13") ~ "0-13",
+    str_detect(term, "v3_14:30") ~ "14-30",
+    str_detect(term, "v3_31:60") ~ "31-60",
+    str_detect(term, "v3_61:90") ~ "61-90",
+    str_detect(term, "v3_91:120") ~ "91-120",
+    str_detect(term, "v3_121") ~ ">120"
+  )) %>%
+  arrange(term, type, age_group)
+df_rect <- df_plot %>% summarise(group = unique(age_group))
+
+
+df_plot |> ggplot(aes(x = term, y = or, ymin = conf.low, ymax = conf.high, color = model)) +
+  geom_rect(
+    data = df_rect, aes(fill = age_group), inherit.aes = FALSE,
+    xmin = -Inf, xmax = Inf,
+    ymin = -Inf, ymax = Inf
+  ) +
+  scale_fill_manual(values = alpha(c("white", "gray85", "white", "gray85"), 0.3)) +
+  guides(
+    fill = "none",
+    color = guide_legend(override.aes = list(linetype = 1))
+  ) +
+  geom_hline(yintercept = 0, lty = 2, size = 0.1) +
+  geom_pointrange(shape = 1, size = 0.9, stroke = 0.4, position = position_jitterdodge(dodge.width = 1)) +
+  labs(y = "Vaccine Effectiveness (%)", x = "Days since BNT162b2 Booster", title = "", color = "Outcome:") +
+  scale_y_continuous(breaks = c(-10, 0, 20, 40, 60, 80, 100), expand = c(0, 0)) +
+  facet_nested(~age_group, labeller = as_labeller(
+    c(
+      "Overall" = "Overall",
+      "18-59" = "18-59 years",
+      "60-79" = "60-79 years",
+      "\u2265 80" = "\u2265 80 years"
+    )
+  )) +
+  theme(axis.text.x = element_text(angle = 0)) +
+  theme(strip.background = element_rect(fill = "white")) +
+  theme(
+    strip.text = element_text(colour = "black", face = "bold"),
+    # axis.line.x = element_line(color = "black", size = 0.5),
+    axis.text.x = element_text(
+      color = "black", face = "plain", size = 8,
+      margin = margin(t = 6)
+    ),
+    panel.spacing.x = unit(0.0, "lines"),
+    axis.text.y = element_text(
+      color = "black", face = "plain"
+    ),
+    panel.spacing.y = unit(1, "lines"),
+    axis.title.x = element_text(margin = unit(c(3, 0, 0, 0), "mm")),
+    legend.position = "bottom"
+  ) +
+  coord_cartesian(ylim = c(-10, 100))
+
+
+```
+
+
+## Death
+
+```{r}
+severe_db <- tnd_cv %>%  filter((death_event == "Death-related" & confirmado == "Confirmado") | confirmado == "Negativo")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Death")
+fun_plot_ve_type(severe,severe_age)
+```
+
+## Death only rt-pcr
+
+```{r}
+severe_db <- tnd_cv_pcr %>%  filter((death_event == "Death-related" & confirmado == "Confirmado") | confirmado == "Negativo")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Death")
+fun_plot_ve_type(severe,severe_age)
+```
+
+
+## Death only ag
+
+```{r}
+severe_db <- tnd_cv_ag %>%  filter((death_event == "Death-related" & confirmado == "Confirmado") | confirmado == "Negativo")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Death")
+fun_plot_ve_type(severe,severe_age)
+```
+
+
+# OR
+
+Compared to Coronavac 181+ days
+
+## Infection
+
+```{r}
+infection <- models_fit(tnd_cv_or)
+infection_age<- tnd_cv_or %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_or(infection,infection_age,"Infection-Symptomatic")
+fun_plot_or_type(infection,infection_age)
+```
+
+## Severe outcomes
+
+```{r}
+severe_db <- tnd_cv_or %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_or(severe,severe_age,"Severe")
+fun_plot_or_type(severe,severe_age)
+```
+
+
+# Plot combined
+
+```{r}
+infection %>% mutate(model="Symptomatic COVID-19") |>  bind_rows(infection_age %>%  select(fit) %>% unnest(names_repair = "check_unique",cols = c(fit)) |> mutate(model="Symptomatic COVID-19"),severe |> mutate(model="Severe COVID-19"),severe_age %>%  select(fit) %>% unnest(names_repair = "check_unique",cols = c(fit)) |> mutate(model="Severe COVID-19")) |> filter(str_detect(term,"CV_v3")) |>
+  mutate(age_group=case_when(
+  str_detect(age_group,"18-121|18-123")~"Overall",
+  str_detect(age_group,"18-59")~"18-59",
+  str_detect(age_group,"60-79")~"60-79",
+  str_detect(age_group,"80-121|80-123")~"\u2265 80"
+), age_group=fct_relevel(factor(age_group),"Overall","18-59","60-79")) |> 
+    mutate(type = case_when(
+      str_detect(term, "CV$") ~ "CV-Booster",
+      str_detect(term, "BNT162b2$") ~ "BNT162b2-Booster",
+      str_detect(term, "BNT162b2$|CV$", negate = T) ~ "No booster"
+    ),
+    model=fct_relevel(factor(model),"Severe COVID-19")) %>%
+    mutate(
+      term = str_remove(term, "CV_"),
+      term = str_remove(term, "_CV$"),
+      term = str_remove(term, "_BNT162b2$")
+    ) %>% filter(type != "No booster") %>% 
+    group_by(type, age_group) %>%
+    mutate(term = fct_case_when(
+      str_detect(term,"v3_0:13")~ "0-13",
+      str_detect(term,"v3_14:30")~ "14-30",
+      str_detect(term,"v3_31:60")~ "31-60",
+      str_detect(term,"v3_61:90")~ "61-90",
+      str_detect(term,"v3_91:120")~ "91-120",
+      str_detect(term,"v3_121")~ ">120"
+    )) %>%
+    arrange(term, type, age_group) %>% 
+    ggplot(aes(x = term, y = or, ymin = conf.low, ymax = conf.high, color=model)) +
+    geom_hline(yintercept = 1, lty=2,size=0.1)+
+    geom_pointrange(shape=1, size=0.5, stroke=0.4,position = position_jitterdodge(dodge.width = 0.9)) +
+    labs(y = "Odd's Ratio", x = "Days since BNT162b2 Booster", title="", color="Outcome:") +
+  scale_y_continuous(breaks = seq(0,1.2,.20),expand = c(0, 0))+
+    facet_nested(~age_group) +
+    theme(axis.text.x = element_text(angle = 0)) +
+    theme(strip.background = element_rect(fill = "gray90")) +
+    theme(strip.text = element_text(colour = "black"),
+          #axis.line.x = element_line(color = "black", size = 0.5),
+          axis.text.x = element_text(
+        color = "black", face = "plain", size = 8,
+        margin = margin(t = 6)
+      ),
+      axis.text.y = element_text(
+        color = "black", face = "plain"
+      ),
+      panel.spacing.y= unit(1, "lines"),
+      axis.title.x = element_text(margin = unit(c(3, 0, 0, 0), "mm")),
+      legend.position = "bottom") +
+    coord_cartesian(ylim = c(0, 1.2))
+```
+
+
+
+## Death
+
+```{r}
+severe_db <- tnd_cv_or %>%  filter((death_event == "Death-related" & confirmado == "Confirmado") | confirmado == "Negativo")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_or(severe,severe_age,"Death")
+fun_plot_or_type(severe,severe_age)
+```
+
+
+# Sensitivity - delay
+
+## Infection
+
+```{r}
+infection <- models_fit(tnd_cv0803)
+infection_age<- tnd_cv0803 %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(infection,infection_age,"Infection-Symptomatic")
+fun_plot_ve_type(infection,infection_age)
+```
+
+## Severe
+
+```{r}
+severe_db <- tnd_cv0803 %>% filter(outcome_confirmado != "Outpatient_Positive")
+severe <- models_fit(severe_db)
+severe_age<- severe_db %>% nest(data=!age_group) %>%  mutate(fit = map(data,models_fit))
+fun_table_ve(severe,severe_age,"Severe")
+fun_plot_ve_type(severe,severe_age)
+```
+
+# Trend Analysis
+
+```{r}
+tnd_cv_trend <- tnd_cv |> filter(str_detect(vacc_status,"v3")) |> droplevels()
+tnd_cv_trend$vs_type2 <- factor(tnd_cv_trend$vs_type2,ordered = T)
+tnd_cv_trend <- tnd_cv_trend |> filter(vs_type2!="CV_v3_0:13_BNT162b2") |> droplevels()
+levels(tnd_cv_trend$vs_type2)
+
+trend_fun <- function(data){
+mod <- bam(confirmado == "Confirmado" ~ vs_type2 +
+    s(temporal_trend, bs = "cr") +
+    s(idade, bs = "cr") +
+    prev_infec +
+    sexo +
+    uf +
+    diabetes +
+    obesidade +
+    imunossupressao +
+    drespiratoria +
+    dcardiaca +
+    drc +
+    q_measure_1f_12 +
+    capital_not,
+  family = binomial, nthreads = 24, discrete = T, data = data)
+  parameters::model_parameters(mod,ci_method="wald", keep="vs_type2", exponentiate=T)}
+
+
+trend_inf_age<- tnd_cv_trend %>% nest(data=!age_group) %>%  mutate(fit = map(data,trend_fun))
+trend_sev_age<- tnd_cv_trend |> filter(outcome_confirmado!="Outpatient_Positive") %>% nest(data=!age_group) %>%  mutate(fit = map(data,trend_fun))
+trend_inf_age |> select(fit, age_group) |> unnest(names_repair = "check_unique",cols = c(fit)) 
+trend_sev_age |> select(fit, age_group) |> unnest(names_repair = "check_unique",cols = c(fit)) 
+trend_fun(tnd_cv_trend)
+trend_fun(tnd_cv_trend|> filter(outcome_confirmado!="Outpatient_Positive")) 
+
+```
+
