@@ -189,20 +189,6 @@ tnd_v12 = tnd_v11 %>% mutate.(status_vacinal = case_when.(
     (dt_coleta_valid - d1_data_aplicacao) <= 13 ~ "v1_0:13",
   (dt_coleta_valid - d1_data_aplicacao)<0 | is.na(d1_data_aplicacao) ~"uv"))
 
-##For Pregnant Women
-
-tnd_v12 = tnd_v11%>% mutate.(status_vacinal = case_when.(
-  (dt_coleta_valid - d3_data_aplicacao) >= 0 ~ "v3_14",
-  (dt_coleta_valid - d2_data_aplicacao) > 13 & is.na(d3_data_aplicacao) |
-    (dt_coleta_valid - d2_data_aplicacao) > 13 & (dt_coleta - d3_data_aplicacao) < 0 ~ "v2_14",
-  (dt_coleta_valid - d2_data_aplicacao) >= 0 & (dt_coleta - d2_data_aplicacao) <= 13 ~ "v2_0:13",
-  ((dt_coleta_valid - d1_data_aplicacao) > 13 &
-     (dt_coleta_valid - d2_data_aplicacao) <= 13) |
-    ((dt_coleta_valid - d1_data_aplicacao) > 13 &
-       is.na(d2_data_aplicacao))~ "v1_14+",
-  (dt_coleta_valid - d1_data_aplicacao) >= 0 &
-    (dt_coleta_valid - d1_data_aplicacao) <= 13 ~ "v1_0:13",
-  (dt_coleta - d1_data_aplicacao) < 0 | is.na(d1_data_aplicacao) ~"uv"))
 
 
 
