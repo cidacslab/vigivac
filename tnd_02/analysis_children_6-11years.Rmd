@@ -5,15 +5,8 @@ date: "4/13/2022"
 output: html_document
 ---
 
-## The analysis by  
-
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
-## Teste de sensibilidade 
-
-
 
 library(knitr)
 library(magrittr)
@@ -25,28 +18,31 @@ knitr::opts_chunk$set(echo = FALSE)
 
 cv = readRDS("/.rds")
 
-## Relevel vaccine status (the reference here must me be unvaccinated individuals - uv)
 
+## Relevel vaccine status (the reference here must me be unvaccinated individuals - uv)
 
 cv$status_vacinal=as.factor(cv$status_vacinal)
 cv$status_vacinal=relevel(cv$status_vacinal,ref="uv")
 
+cv$status_waning=as.factor(cv$status_waning)
+cv$status_waning=relevel(cv$status_waning,ref="uv")
+
+
 ##Converting all variables from our model to categorical  
 ##For analysis model all variables included must be categorical 
 
-
+cv$uf=as.factor(cv$uf) 
+cv$uf=relevel(cv$uf,ref="35")
+cv$mes = as.factor(cv$mes)
 cv$idade=as.factor(cv$idade)
 cv$confirmado = as.factor(cv$confirmado)
 cv$q_measure_1f_12 = as.factor(cv$q_measure_1f_12)
 cv$prev_infect=as.factor(cv$prev_infect) 
 cv$prev_infect=relevel(cv$prev_infect,ref="Not previous infected")
-cv$mes=as.factor(cv$mes)
 cv$nome_grande_regiao=as.factor(cv$nome_grande_regiao)
-
-
+cv$SE = as.factor(cv$SE)
 
 ```
-
 
 ## Tabela Demográfica da população entre 6-11 anos. 
 
@@ -55,7 +51,7 @@ cv$nome_grande_regiao=as.factor(cv$nome_grande_regiao)
 library(gtsummary)
 
 cv_v1 = cv %>% select(id_vigvac,confirmado,idade,sexo,raca,
-                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, mes)
+                       q_measure_1f_12,nome_grande_regiao,outcome,n_comorb, prev_infect, mes, hosp_event, death_event, uf)
 cv_all_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac,digits = all_categorical() ~ c(0, 1))
 
 print(cv_all_char)
@@ -72,16 +68,16 @@ library(knitr)
 library(gtsummary)
 
 #Table Characteristic for the omicron group 
-cv_v1 = cv %>% select(id_vigvac,confirmado, status_vacinal)
+cv_v1 = cv %>% select(id_vigvac,confirmado, status_vacinal, death_event, hosp_event, UTI_2)
 cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
 
 print(cv_char)
 
+
 ```
 
-## Symptomatic Infection - Children - 6-11 years
-### ODDS RATIO and VE:  
-### Crude Model
+## Symptomatic Infection - Children - 6-11 years - Status Vacinal
+### ODDS RATIO and VE:Crude Model
 ```{r echo=FALSE, results='asis'}
 library(knitr)
 library(parameters)
@@ -103,21 +99,21 @@ cv_crude_results$VE= VE
 cv_crude_results$high = high
 cv_crude_results$low = low
 
-kable(cv_crude_results[1:8,], caption = "Odds Ratio - Crude - Symptomatic Infection - Childrens 6-11 anos",digits = 2)
+kable(cv_crude_results[1:5,], caption = "Odds Ratio - Crude - Symptomatic Infection",digits = 2)
 
 
 ```
 
-### Adjusted model
+## Symptomatic Infection - Status Vacinal 
+### ODDS RATIO and VE:Adjusted Model
 ```{r echo=FALSE, results='asis'}
 library(knitr)
 library(parameters)
 library(logistf)
 
-
 ##Odd Ratio - Adjusted 
 
-cv_adj = glm(confirmado == "Confirmado"~status_vacinal+mes+idade+raca+q_measure_1f_12+n_comorb+prev_infect+nome_grande_regiao,family = binomial, data = cv)
+cv_adj = glm(confirmado == "Confirmado" ~ status_vacinal+mes+raca+n_comorb+q_measure_1f_12+nome_grande_regiao+prev_infect,family = binomial, data = cv)
 
 cv_adj_results = model_parameters(
   cv_adj, exponentiate = T, ci_method="wald") 
@@ -130,22 +126,53 @@ cv_adj_results$VE= VE
 cv_adj_results$high = high
 cv_adj_results$low = low
 
-kable(cv_adj_results[1:20,], caption = "Odds Ratio - adjusted model- Symptomatic Infection - Children 6-11 years", digits = 2)
+kable(cv_adj_results[1:12,], caption = "Odds Ratio - glm adjust - Symptomatic Infection", digits = 2)
 
+##Adjusted - logistf
 
+fit_adj = logistf(data=cv, confirmado == "Confirmado" ~ status_vacinal+mes+sexo+idade+n_comorb+nome_grande_regiao+prev_infect, firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
+fit_adj_results = model_parameters(fit_adj, exponentiate = T, ci_method = "profile",  digits = 2)
+
+VE = (1-fit_adj_results$Coefficient)*100
+high = (1-fit_adj_results$CI_low)*100
+low = (1-fit_adj_results$CI_high)*100
+
+fit_adj_results$VE= VE
+fit_adj_results$high = high
+fit_adj_results$low = low
+
+kable(fit_adj_results[1:12,], caption = "Odds Ratio - Fit Adjust - Symptomatic Infection", digits = 2, format.args = list(scientific = FALSE))
 
 
 ```
 
+## Tabela dos testes positivos e negativos 
+Hospitalisation or death events
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+#Severe outcomes 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_posit = cv %>% filter(confirmado=="Confirmado" & outcome == "Hosp_Death")
+omicsev=bind_rows.(omic_neg,omic_posit)
+
+#Table Characteristic for the omicron group 
+cv_v1 = omicsev %>% select(id_vigvac,confirmado, status_vacinal)
+cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(cv_char)
+
+```
 
 
-## Omicron period - Severe outcomes (hospitalisation or death)
-### ODDS RATIO
+## Omicron period - Severe outcomes (hospitalisation or death)  
+### ODDS RATIO + VE 
 
 ```{r echo=FALSE, results='asis'}
 library(knitr)
 library(parameters)
-library(logistf)
 
 #Severe outcomes 
 omic_neg = cv %>% filter(confirmado == "Negativo")
@@ -163,21 +190,17 @@ VE = (1-omicsev_crude_results$Coefficient)*100
 high = (1-omicsev_crude_results$CI_low)*100
 low = (1-omicsev_crude_results$CI_high)*100
 
-omicsev_crude_results$VE= VE
+omicsev_crude_results$VE = VE
 omicsev_crude_results$high = high
 omicsev_crude_results$low = low
 
-kable(omicsev_crude_results[1:6,], caption = "Odds Ratio - Crude - Severe Outcomes - Omicron", digits = 2,format.args = list(scientific = FALSE))
+kable(omicsev_crude_results[1:5,], caption = "Odds Ratio - Crude - Hospitalisation or Death - Omicron", digits = 2,format.args = list(scientific = FALSE))
 
+##Adjusted - glm 
+omicsev_adj = glm(confirmado == "Confirmado"~status_vacinal+mes+raca+n_comorb+q_measure_1f_12+nome_grande_regiao+prev_infect,family = binomial, data = omicsev)
 
-
-##Odd Ratio - Adjusted 
-omicsev_adj = logistf(data=omicsev, confirmado == "Confirmado" ~ status_waning+mes+sexo+idade+n_comorb+prev_infect+nome_grande_regiao,
-                  firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
-
-
-omicsev_adj_results = model_parameters(fitsev, exponentiate = T, ci_method = "profile",  digits = 2)
-
+omicsev_adj_results = model_parameters(
+  omicsev_adj, exponentiate = T, ci_method="profile") 
 
 VE = (1-omicsev_adj_results$Coefficient)*100
 high = (1-omicsev_adj_results$CI_low)*100
@@ -187,10 +210,342 @@ omicsev_adj_results$VE= VE
 omicsev_adj_results$high = high
 omicsev_adj_results$low = low
 
-
-kable(omicsev_adj_results[1:6,], caption = "Odds Ratio - Adjusted - Severe Outcomes - Omicron", digits = 2, format.args = list(scientific = FALSE))
-
+kable(omicsev_adj_results[1:12,], caption = "Odds Ratio - glm adjust - Hospitalisation or Death", digits = 2)
 
 
 ```
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Tabela dos testes positivos e negativos 
+Only Hospitalisation
+
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+
+#Hospitalisation 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_hosp = cv %>% filter(confirmado=="Confirmado" & hosp_event == "Hospitalization")
+omicsev=bind_rows.(omic_neg,omic_hosp)
+
+
+#Table Characteristic for the omicron group 
+cv_v1 = omicsev %>% select(id_vigvac,confirmado, status_vacinal)
+cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(cv_char)
+
+```
+
+## Omicron period - Severe outcomes (hospitalisation) + Status Vacinal + Mês 
+### ODDS RATIO + VE 
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+library(logistf)
+
+#Hospitalisation
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_hosp = cv %>% filter(confirmado=="Confirmado" & hosp_event == "Hospitalization")
+omicsev=bind_rows.(omic_neg,omic_hosp)
+
+
+##Odd Ratio - crude
+omicsev_crude = glm(confirmado == "Confirmado" ~ status_vacinal,
+                 family = binomial, data = omicsev)
+omicsev_crude_results = model_parameters(
+  omicsev_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_crude_results$Coefficient)*100
+high = (1-omicsev_crude_results$CI_low)*100
+low = (1-omicsev_crude_results$CI_high)*100
+
+omicsev_crude_results$VE = VE
+omicsev_crude_results$high = high
+omicsev_crude_results$low = low
+
+kable(omicsev_crude_results[1:5,], caption = "Odds Ratio - Crude - Severe Outcomes - Omicron", digits = 2,format.args = list(scientific = FALSE))
+
+##Adjusted - glm + profile CI method 
+
+omicsev_adj = glm(confirmado == "Confirmado"~status_vacinal+mes+raca+n_comorb+q_measure_1f_12+nome_grande_regiao+prev_infect,family = binomial, data = omicsev)
+
+omicsev_adj_results = model_parameters(
+  omicsev_adj, exponentiate = T, ci_method="profile") 
+
+VE = (1-omicsev_adj_results$Coefficient)*100
+high = (1-omicsev_adj_results$CI_low)*100
+low = (1-omicsev_adj_results$CI_high)*100
+
+omicsev_adj_results$VE= VE
+omicsev_adj_results$high = high
+omicsev_adj_results$low = low
+
+kable(omicsev_adj_results[1:12,], caption = "Odds Ratio - glm Adjust - Hospitalisation", digits = 2)
+
+##Adjusted - logistf
+
+fitsev_adj = logistf(data=omicsev, confirmado == "Confirmado" ~ status_vacinal+mes+sexo+idade+n_comorb+nome_grande_regiao+prev_infect, firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
+fitsev_adj_results = model_parameters(fitsev_adj, exponentiate = T, ci_method = "profile",  digits = 2)
+
+VE = (1-fitsev_adj_results$Coefficient)*100
+high = (1-fitsev_adj_results$CI_low)*100
+low = (1-fitsev_adj_results$CI_high)*100
+
+fitsev_adj_results$VE= VE
+fitsev_adj_results$high = high
+fitsev_adj_results$low = low
+
+kable(fitsev_adj_results[1:12,], caption = "Odds Ratio - Fit Adjust - Hospitalisation", digits = 2, format.args = list(scientific = FALSE))
+
+
+```
+
+Tabela positivos e negativos ICU
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+#Severe outcomes 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_uti = cv %>% filter(confirmado=="Confirmado" & UTI_2 == "1")
+omicsev=bind_rows.(omic_neg,omic_uti)
+
+
+#Table Characteristic for the omicron group 
+cv_v1 = omicsev %>% select(id_vigvac,confirmado, status_vacinal)
+cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(cv_char)
+
+```
+
+## Omicron period - Severe outcomes (ICU) + Status Vacinal + Mês 
+### ODDS RATIO + VE 
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+library(logistf)
+
+
+#Severe outcomes 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_uti = cv %>% filter(confirmado=="Confirmado" & UTI_2 == "1")
+omicsev=bind_rows.(omic_neg,omic_uti)
+
+
+##Odd Ratio - crude
+omicsev_crude = glm(confirmado == "Confirmado" ~ status_vacinal,
+                 family = binomial, data = omicsev)
+omicsev_crude_results = model_parameters(
+  omicsev_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_crude_results$Coefficient)*100
+high = (1-omicsev_crude_results$CI_low)*100
+low = (1-omicsev_crude_results$CI_high)*100
+
+omicsev_crude_results$VE = VE
+omicsev_crude_results$high = high
+omicsev_crude_results$low = low
+
+kable(omicsev_crude_results[1:5,], caption = "Odds Ratio - Crude - ICU admission", digits = 2,format.args = list(scientific = FALSE))
+
+##Adjusted - glm 
+omicsev_adj = glm(confirmado == "Confirmado"~status_vacinal+mes+raca+n_comorb+q_measure_1f_12+nome_grande_regiao+prev_infect,family = binomial, data = omicsev)
+
+omicsev_adj_results = model_parameters(
+  omicsev_adj, exponentiate = T, ci_method="profile") 
+
+VE = (1-omicsev_adj_results$Coefficient)*100
+high = (1-omicsev_adj_results$CI_low)*100
+low = (1-omicsev_adj_results$CI_high)*100
+
+omicsev_adj_results$VE= VE
+omicsev_adj_results$high = high
+omicsev_adj_results$low = low
+
+kable(omicsev_adj_results[1:12,], caption = "Odds Ratio - glm Adjust - ICU admission", digits = 2)
+
+
+##Adjusted - logistf
+
+fitsev_adj = logistf(data=omicsev, confirmado == "Confirmado" ~ status_vacinal+mes+sexo+idade+n_comorb+nome_grande_regiao+prev_infect, firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
+fitsev_adj_results = model_parameters(fitsev_adj, exponentiate = T, ci_method = "profile",  digits = 2)
+
+VE = (1-fitsev_adj_results$Coefficient)*100
+high = (1-fitsev_adj_results$CI_low)*100
+low = (1-fitsev_adj_results$CI_high)*100
+
+fitsev_adj_results$VE= VE
+fitsev_adj_results$high = high
+fitsev_adj_results$low = low
+
+kable(fitsev_adj_results[1:12,], caption = "Odds Ratio - Fit Adjusted - ICU admission", digits = 2, format.args = list(scientific = FALSE))
+
+
+```
+
+Tabela positivos e negativos (Death events)
+```{r echo=FALSE, results='asis'}
+
+library(knitr)
+library(gtsummary)
+#Severe outcomes 
+
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_death= cv %>% filter(confirmado=="Confirmado" & death_event == "Death-related")
+omicsev=bind_rows.(omic_neg,omic_death)
+
+
+#Table Characteristic for the omicron group 
+cv_v1 = omicsev %>% select(id_vigvac,confirmado, status_vacinal)
+cv_char = cv_v1 %>% tbl_summary(by = confirmado, include = -id_vigvac, percent = "row",digits = all_categorical() ~ c(0, 2))
+
+print(cv_char)
+
+```
+## Omicron period - Severe outcomes (Death) + Status Vacinal + Mês 
+### ODDS RATIO + VE 
+
+```{r echo=FALSE, results='asis'}
+library(knitr)
+library(parameters)
+library(logistf)
+
+#Severe outcomes 
+omic_neg = cv %>% filter(confirmado == "Negativo")
+omic_death= cv %>% filter(confirmado=="Confirmado" & death_event == "Death-related")
+omicsev=bind_rows.(omic_neg,omic_death)
+
+
+##Odd Ratio - crude
+omicsev_crude = glm(confirmado == "Confirmado" ~ status_vacinal,
+                 family = binomial, data = omicsev)
+omicsev_crude_results = model_parameters(
+  omicsev_crude, exponentiate = T, ci_method="wald")
+
+VE = (1-omicsev_crude_results$Coefficient)*100
+high = (1-omicsev_crude_results$CI_low)*100
+low = (1-omicsev_crude_results$CI_high)*100
+
+omicsev_crude_results$VE = VE
+omicsev_crude_results$high = high
+omicsev_crude_results$low = low
+
+kable(omicsev_crude_results[1:5,], caption = "Odds Ratio - Crude - Death", digits = 2,format.args = list(scientific = FALSE))
+
+##Adjusted - logistf
+
+fitsev_adj = logistf(data=omicsev, confirmado == "Confirmado" ~ status_vacinal+mes+sexo+idade+n_comorb+nome_grande_regiao+prev_infect, firth=TRUE, pl=TRUE, method = "Penalized ML", method.ci ="profile likelihood")
+fitsev_adj_results = model_parameters(fitsev_adj, exponentiate = T, ci_method = "profile",  digits = 2)
+
+VE = (1-fitsev_adj_results$Coefficient)*100
+high = (1-fitsev_adj_results$CI_low)*100
+low = (1-fitsev_adj_results$CI_high)*100
+
+fitsev_adj_results$VE= VE
+fitsev_adj_results$high = high
+fitsev_adj_results$low = low
+
+kable(fitsev_adj_results[1:12,], caption = "Odds Ratio - Fit Adjust - Death", digits = 2, format.args = list(scientific = FALSE))
+
+
+```
+
+##Multiple Imputation
+
+pacman::p_load(tidyverse,mice)
+
+tnd = readRDS("/.rds")
+
+
+tnd1 <- tnd  %>%  select(idade,sexo,raca,confirmado,codmun6,uf,nome_grande_regiao,tipo_teste,diabetes:puerpera,status_vacinal,mes,prev_infect, q_measure_1f_12)
+tnd1 <- tnd1 %>%  mutate(raca=case_when(
+  raca=="(Missing)" ~ NA_character_,
+  TRUE ~ as.character(raca)),
+                       across(where(is.character),as.factor)
+                       )
+
+tnd <- tnd  %>%  mutate(filter_imp=if_else((outcome=="Hosp_Death" & confirmado=="Confirmado") | confirmado=="Negativo",TRUE,FALSE))
+imp <- mice(tnd1, maxit=0)
+predM <- imp$predictorMatrix
+meth <- imp$method
+#md.pattern(tnd1)
+imp2 <- parlmice(tnd1, maxit = 10, 
+             predictorMatrix = predM, 
+             method = meth, print =  FALSE, cluster.seed = 07062022,  n.core=2, n.imp.core = 5)
+long <- complete(imp2, action='long', include=TRUE)
+# Generate new variable
+long <- long  %>%  mutate_rowwise.(n_comorb=sum(c_across.(diabetes:drc)))
+
+long <- long %>%  mutate.(n_comorb=as.factor(case_when.(
+  n_comorb>=2 ~ "2+",
+  TRUE ~ as.character(n_comorb)
+))) 
+n_comorb=fct_lump(factor(n_comorb),n=2,other_level ="2+")
+
+
+# Convert back to Mids
+imput.short <- as.mids(long)
+
+imp_severe <- filter(imput.short,tnd$filter_imp)
+modelo2imp <- with(imput.short,glm(confirmado=="Confirmado"~as.factor(idade)+sexo+raca+status_vacinal+as.factor(mes)+relevel(factor(prev_infect),"Not previous infected")+n_comorb+as.factor(nome_grande_regiao)+as.factor(q_measure_1f_12),family=binomial))
+modelo3imp <- with(imp_severe,glm(confirmado=="Confirmado"~as.factor(idade)+sexo+raca+status_vacinal+as.factor(mes)+relevel(factor(prev_infect),"Not previous infected")+n_comorb+as.factor(nome_grande_regiao)+as.factor(q_measure_1f_12),family=binomial))
+
+
+dt1 <- broom::tidy(pool(modelo3imp),conf.int=T,exponentiate = TRUE) 
+dt2 <- broom::tidy(pool(modelo2imp),conf.int=T,exponentiate = TRUE) 
+
+saveRDS(dt2,".rds")
+saveRDS(dt1,".rds")
+
+
+
+```{r echo=FALSE, results='asis'}
+#library(knitr)
+#library(parameters)
+
+#delta_MI = readRDS("/.rds")
+
+#delta_MI = delta_MI[,1:7] 
+
+
+#VE = (1-delta_MI$estimate)*100
+#high = (1-delta_MI$conf.low)*100
+#low = (1-delta_MI$conf.high)*100
+
+#delta_MI$VE= VE
+#delta_MI$high = high
+#delta_MI$low = low
+
+#kable(delta_MI[1:80,], caption = "Multiple Imputation - Adjusted - SYMPTOMATIC INFECTION - OMICRON, digits = 2")
+
+```
+
+```{r echo=FALSE, results='asis'}
+#library(knitr)
+#library(parameters)
+
+#delta_MI = readRDS("/.rds")
+
+#delta_MI = delta_MI[,1:7] 
+
+
+#VE = (1-delta_MI$estimate)*100
+#high = (1-delta_MI$conf.low)*100
+#low = (1-delta_MI$conf.high)*100
+
+#delta_MI$VE= VE
+#delta_MI$high = high
+#delta_MI$low = low
+
+#kable(delta_MI[1:80,], caption = "Multiple Imputation - Adjusted - SEVERE OUCOMES - OMICRON", digits = 2)
+
+```
+
+
+
+
+
